@@ -37,6 +37,16 @@ public:
     juce::ToggleButton* softKneeButton;
     juce::ToggleButton* sideChainButton;
     
+    juce::AudioProcessorValueTreeState::SliderAttachment* thresholdAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment* ratioAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment* attackTimeAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment* releaseTimeAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment* kneeWidthAttachment;
+    juce::AudioProcessorValueTreeState::SliderAttachment* makeUpGainAttachment;
+    
+    juce::AudioProcessorValueTreeState::ButtonAttachment* softKneeAttachment;
+    juce::AudioProcessorValueTreeState::ButtonAttachment* sideChainAttachment;
+    
     juce::Label* thresholdLabel;
     juce::Label* ratioLabel;
     juce::Label* attackTimeLabel;
@@ -52,6 +62,9 @@ private:
     // access the processor object that created it.
     RPCompressorAudioProcessor& audioProcessor;
     EnvelopeComponent* envelopeComponent;
+    
+    void initBaseSlider(juce::Slider&, juce::AudioParameterFloat&, juce::AudioProcessorValueTreeState::SliderAttachment*&);
+    void resizeComponent();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RPCompressorAudioProcessorEditor)
 };

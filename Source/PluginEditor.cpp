@@ -39,6 +39,13 @@ RPCompressorAudioProcessorEditor::RPCompressorAudioProcessorEditor (RPCompressor
     softKneeLabel = new juce::Label("soft knee flag", "soft knee");
     sideChainLabel = new juce::Label("side chain flag", "side chain");
     
+    initBaseSlider(*attackTimeSlider, *audioProcessor.attackTime, attackTimeAttachment);
+    initBaseSlider(*releaseTimeSlider, *audioProcessor.releaseTime, releaseTimeAttachment);
+    initBaseSlider(*thresholdSlider, *audioProcessor.threshold, thresholdAttachment);
+    initBaseSlider(*ratioSlider, *audioProcessor.ratio, ratioAttachment);
+    initBaseSlider(*kneeWidthSlider, *audioProcessor.kneeWidth, kneeWidthAttachment);
+    initBaseSlider(*makeUpGainSlider, *audioProcessor.makeUpGain, makeUpGainAttachment);
+    
     thresholdSlider->setBounds(0, 400, 100, 100);
     ratioSlider->setBounds(100, 400, 100, 100);
     attackTimeSlider->setBounds(200, 400, 100, 100);
@@ -68,34 +75,6 @@ RPCompressorAudioProcessorEditor::RPCompressorAudioProcessorEditor (RPCompressor
     sideChainButton->setColour(juce::ToggleButton::tickColourId, juce::Colours::black);
     sideChainButton->setColour(juce::ToggleButton::textColourId, juce::Colours::black);
     sideChainButton->setColour(juce::ToggleButton::tickDisabledColourId, juce::Colours::black);
-    
-    juce::Range<double> thresholdRange{-60.0, 0};
-    juce::Range<double> ratioRange{1.0, 20.0};
-    juce::Range<double> attackRange{0.1, 200};
-    juce::Range<double> releaseRange{10.0, 500.0};
-    juce::Range<double> kneeWidthRange{0.1, 40.0};
-    juce::Range<double> makeUpGainRange{-20.0, 10.0};
-    
-    thresholdSlider->setRange(thresholdRange, 0.1);
-    ratioSlider->setRange(ratioRange, 1.0);
-    attackTimeSlider->setRange(attackRange, 0.1);
-    releaseTimeSlider->setRange(releaseRange, 0.1);
-    kneeWidthSlider->setRange(kneeWidthRange, 0.1);
-    makeUpGainSlider->setRange(makeUpGainRange, 0.1);
-    
-    thresholdSlider->setSliderStyle(juce::Slider::Rotary);
-    ratioSlider->setSliderStyle(juce::Slider::Rotary);
-    attackTimeSlider->setSliderStyle(juce::Slider::Rotary);
-    releaseTimeSlider->setSliderStyle(juce::Slider::Rotary);
-    kneeWidthSlider->setSliderStyle(juce::Slider::Rotary);
-    makeUpGainSlider->setSliderStyle(juce::Slider::Rotary);
-    
-    thresholdSlider->setRotaryParameters (juce::MathConstants<float>::pi * 1.2f, juce::MathConstants<float>::pi * 2.8f, false);
-    ratioSlider->setRotaryParameters (juce::MathConstants<float>::pi * 1.2f, juce::MathConstants<float>::pi * 2.8f, false);
-    attackTimeSlider->setRotaryParameters (juce::MathConstants<float>::pi * 1.2f, juce::MathConstants<float>::pi * 2.8f, false);
-    releaseTimeSlider->setRotaryParameters (juce::MathConstants<float>::pi * 1.2f, juce::MathConstants<float>::pi * 2.8f, false);
-    kneeWidthSlider->setRotaryParameters (juce::MathConstants<float>::pi * 1.2f, juce::MathConstants<float>::pi * 2.8f, false);
-    makeUpGainSlider->setRotaryParameters (juce::MathConstants<float>::pi * 1.2f, juce::MathConstants<float>::pi * 2.8f, false);
     
     thresholdSlider->setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 20);
     thresholdSlider->setTitle("threshold");
@@ -132,15 +111,8 @@ RPCompressorAudioProcessorEditor::RPCompressorAudioProcessorEditor (RPCompressor
     makeUpGainSlider->setColour(juce::Slider::textBoxTextColourId, juce::Colours::black);
     makeUpGainSlider->setNumDecimalPlacesToDisplay(1);
     
-    thresholdSlider->getValueObject().referTo(audioProcessor.threshold);
-    ratioSlider->getValueObject().referTo(audioProcessor.ratio);
-    attackTimeSlider->getValueObject().referTo(audioProcessor.attackTime);
-    releaseTimeSlider->getValueObject().referTo(audioProcessor.releaseTime);
-    kneeWidthSlider->getValueObject().referTo(audioProcessor.kneeWidth);
-    makeUpGainSlider->getValueObject().referTo(audioProcessor.makeUpGain);
-    
-    softKneeButton->getToggleStateValue().referTo(audioProcessor.softKneeFlag);
-    sideChainButton->getToggleStateValue().referTo(audioProcessor.sideChainFlag);
+    softKneeAttachment = new juce::AudioProcessorValueTreeState::ButtonAttachment(*audioProcessor.parameters, "softKneeFlag", *softKneeButton);
+    sideChainAttachment = new juce::AudioProcessorValueTreeState::ButtonAttachment(*audioProcessor.parameters, "sideChainFlag", *sideChainButton);
     
     addAndMakeVisible(thresholdSlider);
     addAndMakeVisible(ratioSlider);
@@ -164,6 +136,35 @@ RPCompressorAudioProcessorEditor::RPCompressorAudioProcessorEditor (RPCompressor
 
 RPCompressorAudioProcessorEditor::~RPCompressorAudioProcessorEditor()
 {
+    delete thresholdSlider;
+    delete ratioSlider;
+    delete attackTimeSlider;
+    delete releaseTimeSlider;
+    delete kneeWidthSlider;
+    delete makeUpGainSlider;
+    
+    delete softKneeButton;
+    delete sideChainButton;
+    
+    delete thresholdAttachment;
+    delete ratioAttachment;
+    delete attackTimeAttachment;
+    delete releaseTimeAttachment;
+    delete kneeWidthAttachment;
+    delete makeUpGainAttachment;
+    
+    delete softKneeAttachment;
+    delete sideChainAttachment;
+    
+    delete thresholdLabel;
+    delete ratioLabel;
+    delete attackTimeLabel;
+    delete releaseTimeLabel;
+    delete kneeWidthLabel;
+    delete makeUpGainLabel;
+    
+    delete softKneeLabel;
+    delete sideChainLabel;
 }
 
 //==============================================================================
@@ -180,16 +181,23 @@ void RPCompressorAudioProcessorEditor::paint (juce::Graphics& g)
 
 void RPCompressorAudioProcessorEditor::timerCallback()
 {
-    audioProcessor.lastAttackTime = (float) audioProcessor.attackTime.getValue();
-    audioProcessor.lastReleaseTime = (float) audioProcessor.releaseTime.getValue();
-    audioProcessor.lastThreshold = (float) audioProcessor.threshold.getValue();
-    audioProcessor.lastRatio = (float) audioProcessor.ratio.getValue();
-    audioProcessor.lastKneeWidth = (float) audioProcessor.ratio.getValue();
-    audioProcessor.lastSoftKneeFlag = (bool) audioProcessor.softKneeFlag.getValue();
+    audioProcessor.lastAttackTime = audioProcessor.attackTime->get();
+    audioProcessor.lastReleaseTime = audioProcessor.releaseTime->get();
+    audioProcessor.lastThreshold = audioProcessor.threshold->get();
+    audioProcessor.lastRatio = audioProcessor.ratio->get();
+    audioProcessor.lastKneeWidth = audioProcessor.kneeWidth->get();
+    audioProcessor.lastSoftKneeFlag = audioProcessor.softKneeFlag->get();
 }
     
 void RPCompressorAudioProcessorEditor::resized()
 {
     // This is generally where you'll want to lay out the positions of any
     // subcomponents in your editor..
+}
+
+void RPCompressorAudioProcessorEditor::initBaseSlider(juce::Slider& slider, juce::AudioParameterFloat& param, juce::AudioProcessorValueTreeState::SliderAttachment*& attach) {
+    slider.setRange({param.range.start, param.range.end}, param.range.interval);
+    slider.setSliderStyle(juce::Slider::Rotary);
+    slider.setRotaryParameters (juce::MathConstants<float>::pi * 1.2f, juce::MathConstants<float>::pi * 2.8f, false);
+    attach = new juce::AudioProcessorValueTreeState::SliderAttachment(*audioProcessor.parameters, param.getParameterID(), slider);
 }

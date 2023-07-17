@@ -74,15 +74,15 @@ void EnvelopeComponent::updateEnvelope(juce::Path& path, float audioData)
 }
 
 void EnvelopeComponent::updateIndicator(){
-    if (audioProcessor.lastThreshold == audioProcessor.threshold && audioProcessor.lastRatio == audioProcessor.ratio && audioProcessor.lastKneeWidth == audioProcessor.kneeWidth && audioProcessor.lastSoftKneeFlag == audioProcessor.softKneeFlag) return;
-    audioProcessor.lastThreshold = (float) audioProcessor.threshold.getValue();
-    audioProcessor.lastRatio = (float) audioProcessor.ratio.getValue();
+    if (audioProcessor.lastThreshold == audioProcessor.threshold->get() && audioProcessor.lastRatio == audioProcessor.ratio->get() && audioProcessor.lastKneeWidth == audioProcessor.kneeWidth->get() && audioProcessor.lastSoftKneeFlag == audioProcessor.softKneeFlag->get()) return;
+    audioProcessor.lastThreshold = audioProcessor.threshold->get();
+    audioProcessor.lastRatio = audioProcessor.ratio->get();
     
     indicator.clear();
     
     if (!(bool) audioProcessor.lastSoftKneeFlag) {
         indicator.startNewSubPath(0, getHeight());
-        float height = 1 - ((float) audioProcessor.threshold.getValue() + displayRange) / displayRange;
+        float height = 1 - (audioProcessor.threshold->get() + displayRange) / displayRange;
         float lineEndX1 = getHeight() * (1 - height);
         float lineEndY1 = getHeight() * height;
         indicator.lineTo(lineEndX1, lineEndY1);
@@ -94,9 +94,9 @@ void EnvelopeComponent::updateIndicator(){
         float lineEndY2 = lineEndY1 + lineLength * lineSlope;  // 终点的Y坐标
         indicator.lineTo(lineEndX2, lineEndY2);
     } else {
-        float kwidth = (float)audioProcessor.kneeWidth.getValue() / displayRange * getHeight();
+        float kwidth = audioProcessor.kneeWidth->get() / displayRange * getHeight();
         indicator.startNewSubPath(0, getHeight());
-        float height = 1 - ((float) audioProcessor.threshold.getValue() + displayRange) / displayRange;
+        float height = 1 - (audioProcessor.threshold->get() + displayRange) / displayRange;
         float crossX = getHeight() * (1 - height);
         float croesY = getHeight() * height;
         float lineEndX1 = crossX - kwidth / 2;

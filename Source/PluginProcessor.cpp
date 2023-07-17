@@ -14,19 +14,43 @@
 RPCompressorAudioProcessor::RPCompressorAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
      : AudioProcessor (BusesProperties()
-                     #if ! JucePlugin_IsMidiEffect
-                      #if ! JucePlugin_IsSynth
-                       .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-                      #endif
-                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
-                     #endif
+                       .withInput  ("Input",  juce::AudioChannelSet::stereo())
+                       .withOutput ("Output", juce::AudioChannelSet::stereo())
                        )
 #endif
 {
+    parameters = new juce::AudioProcessorValueTreeState(*this, nullptr, "PARAMETERS", {
+        std::make_unique<juce::AudioParameterFloat>(*(new juce::ParameterID("attackTime", 1)), "Attack Time", *(new juce::NormalisableRange<float>(0.1f, 200.0f, 0.1f)), 10.0f),
+        std::make_unique<juce::AudioParameterFloat>(*(new juce::ParameterID("releaseTime", 1)), "Release Time", *(new juce::NormalisableRange<float>(10.0f, 500.0f, 0.1f)), 200.0f),
+        std::make_unique<juce::AudioParameterFloat>(*(new juce::ParameterID("threshold", 1)), "Threshold", *(new juce::NormalisableRange<float>(-60.0f, 0.0f, 0.1f)), -12.0f),
+        std::make_unique<juce::AudioParameterFloat>(*(new juce::ParameterID("ratio", 1)), "Ratio", *(new juce::NormalisableRange<float>(1.0f, 20.0f, 1.0f)), 4.0f),
+        std::make_unique<juce::AudioParameterFloat>(*(new juce::ParameterID("kneeWidth", 1)), "Knee Width", *(new juce::NormalisableRange<float>(1.0f, 80.0f, 0.1f)), 10.0f),
+        std::make_unique<juce::AudioParameterFloat>(*(new juce::ParameterID("makeUpGain", 1)), "Make Up Gain", *(new juce::NormalisableRange<float>(-20.0f, 12.0f, 0.1f)), 0.0f),
+        std::make_unique<juce::AudioParameterBool>(*(new juce::ParameterID("softKneeFlag", 1)), "Soft Knee Flag", false),
+        std::make_unique<juce::AudioParameterBool>(*(new juce::ParameterID("sideChainFlag", 1)), "Side Chain Flag", false)
+    });
+    
+    attackTime = (juce::AudioParameterFloat*) parameters->getParameter("attackTime");
+    releaseTime = (juce::AudioParameterFloat*) parameters->getParameter("releaseTime");
+    threshold = (juce::AudioParameterFloat*) parameters->getParameter("threshold");
+    ratio = (juce::AudioParameterFloat*) parameters->getParameter("ratio");
+    kneeWidth = (juce::AudioParameterFloat*) parameters->getParameter("kneeWidth");
+    makeUpGain = (juce::AudioParameterFloat*) parameters->getParameter("makeUpGain");
+    softKneeFlag = (juce::AudioParameterBool*) parameters->getParameter("softKneeFlag");
+    sideChainFlag = (juce::AudioParameterBool*) parameters->getParameter("sideChainFlag");
 }
 
 RPCompressorAudioProcessor::~RPCompressorAudioProcessor()
 {
+    delete parameters;
+    delete attackTime;
+    delete releaseTime;
+    delete threshold;
+    delete ratio;
+    delete kneeWidth;
+    delete makeUpGain;
+    delete softKneeFlag;
+    delete sideChainFlag;
 }
 
 //==============================================================================
@@ -96,18 +120,20 @@ void RPCompressorAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
 {
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
-    attackTime = 10;
-    releaseTime = 200;
-    threshold = -12;
-    ratio = 4;
-    envelope = 0.0;
+    
+    lastKneeWidth = false;
+    lastSoftKneeFlag = false;
+    lastSideChainFlag = false;
     lastAttackTime = 0.0;
     lastReleaseTime = 0.0;
+    
     attackTimeRatio = 0.0;
     releaseTimeRatio = 0.0;
     gainReduction = 1.0;
     currentRatio = 1.0;
     numSamples = 0;
+    envelope = 0.0;
+    
     processStep = new int[getTotalNumInputChannels()];
     processFlag = new int[getTotalNumInputChannels()];
     gainDB = new float[getTotalNumInputChannels()];
@@ -119,11 +145,6 @@ void RPCompressorAudioProcessor::prepareToPlay (double sampleRate, int samplesPe
         lastEnvelope[i] = 0.0f;
     }
     timeInterval = 1000 / getSampleRate();
-    
-    kneeWidth = 10.0;
-    makeUpGain = 0.0;
-    lastKneeWidth = (float) kneeWidth.getValue();
-    lastSoftKneeFlag = false;
 }
 
 void RPCompressorAudioProcessor::releaseResources()
@@ -132,36 +153,36 @@ void RPCompressorAudioProcessor::releaseResources()
     // spare memory, etc.
 }
 
-#ifndef JucePlugin_PreferredChannelConfigurations
+
 bool RPCompressorAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-  #if JucePlugin_IsMidiEffect
-    juce::ignoreUnused (layouts);
-    return true;
-  #else
-    // This is the place where you check if the layout is supported.
-    // In this template code we only support mono or stereo.
-    // Some plugin hosts, such as certain GarageBand versions, will only
-    // load plugins that support stereo bus layouts.
-    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
-     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
-        return false;
-
-    // This checks if the input layout matches the output layout
-   #if ! JucePlugin_IsSynth
-    if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
-        return false;
-   #endif
-
-    return true;
-  #endif
+    return layouts.getMainInputChannelSet() == layouts.getMainOutputChannelSet()
+    && ! layouts.getMainInputChannelSet().isDisabled();
 }
-#endif
 
 void RPCompressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
-    juce::AudioBuffer<float>& inputBuffer = buffer;
-    juce::AudioBuffer<float>& outputBuffer = buffer;
+    auto inputBuffer = getBusBuffer (buffer, true, 0);
+    auto outputBuffer = getBusBuffer (buffer, true, 0);
+    auto sideChainInput = getBusBuffer (buffer, true, 0);
+    
+    if (sideChainFlag->get() && !lastSideChainFlag) {
+        if (addBus(true)) {
+            sideChainInput = getBusBuffer (buffer, true, 1);
+            lastSideChainFlag = true;
+        } else {
+            *sideChainFlag = false;
+        }
+    }
+    
+    if (!sideChainFlag->get() && lastSideChainFlag) {
+        if (removeBus(true)) {
+            lastSideChainFlag = false;
+        } else {
+            *sideChainFlag = true;
+            sideChainInput = getBusBuffer (buffer, true, 1);
+        }
+    }
     
     releaseTimeRatio = calculateReleaseCoeff(0);
     attackTimeRatio = calculateAttackCoeff(0);
@@ -169,7 +190,7 @@ void RPCompressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     auto totalNumInputChannels  = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
     
-    currentInput = buffer.getReadPointer(0)[0];
+    currentInput = inputBuffer.getReadPointer(0)[0];
 
     // In case we have more outputs than inputs, this code clears any output
     // channels that didn't contain input data, (because these aren't
@@ -179,7 +200,7 @@ void RPCompressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // this code if your algorithm always overwrites all the output channels.
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
-
+    
     numSamples = inputBuffer.getNumSamples();
     // This is the place where you'd normally do the guts of your plugin's
     // audio processing...
@@ -187,23 +208,44 @@ void RPCompressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // the samples and the outer loop is handling the channels.
     // Alternatively, you can process the samples with the channels
     // interleaved by keeping the same state.
-    for (int channel = 0; channel < totalNumInputChannels; ++channel)
-    {
-        const float* inputChannelData = inputBuffer.getReadPointer(channel);
-        float* outputChannelData = outputBuffer.getWritePointer(channel);
-
-        for (int sample = 0; sample < numSamples; ++sample)
+    
+    if (!(bool)sideChainFlag->get()){
+        for (int channel = 0; channel < inputBuffer.getNumChannels(); ++channel)
         {
-            // 获取当前样本的振幅
-            float detectDb = 0.0f;
-            detectDb = calDetectDb(inputChannelData[sample], channel);
-            gainReduction = calGain(detectDb);
-            float makeupGainLinear = pow(10.0, (float) makeUpGain.getValue() / 20.0);
-            
-            outputChannelData[sample] = inputChannelData[sample] * gainReduction * makeupGainLinear;
+            const float* inputChannelData = inputBuffer.getReadPointer(channel);
+            float* outputChannelData = outputBuffer.getWritePointer(channel);
+
+            for (int sample = 0; sample < numSamples; ++sample)
+            {
+                // 获取当前样本的振幅
+                float detectDb = 0.0f;
+                detectDb = calDetectDb(inputChannelData[sample], channel);
+                gainReduction = calGain(detectDb);
+                float makeupGainLinear = pow(10.0, makeUpGain->get() / 20.0);
+                
+                outputChannelData[sample] = inputChannelData[sample] * gainReduction * makeupGainLinear;
+            }
+        }
+    }else {
+        for (int channel = 0; channel < sideChainInput.getNumChannels(); ++channel)
+        {
+            const float* inputChannelData = sideChainInput.getReadPointer(channel);
+            float* outputChannelData = outputBuffer.getWritePointer(channel);
+
+            for (int sample = 0; sample < numSamples; ++sample)
+            {
+                // 获取当前样本的振幅
+                float detectDb = 0.0f;
+                detectDb = calDetectDb(inputChannelData[sample], channel);
+                gainReduction = calGain(detectDb);
+                float makeupGainLinear = pow(10.0, makeUpGain->get() / 20.0);
+                
+                outputChannelData[sample] = inputChannelData[sample] * gainReduction * makeupGainLinear;
+            }
         }
     }
-    currentOutput = buffer.getWritePointer(0)[0];
+    
+    currentOutput = outputBuffer.getWritePointer(0)[0];
 }
 
 //==============================================================================
@@ -240,14 +282,14 @@ juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 
 float RPCompressorAudioProcessor::calculateAttackCoeff(int sampleNum)
 {
-    if (attackTime == lastAttackTime) return attackTimeRatio;
-    return std::exp(-0.99967234081 / (getSampleRate() * (float) attackTime.getValue() * 0.001));
+    if (*attackTime == lastAttackTime) return attackTimeRatio;
+    return std::exp(-0.99967234081 / (getSampleRate() * attackTime->get() * 0.001));
 }
 
 float RPCompressorAudioProcessor::calculateReleaseCoeff(int sampleNum)
 {
-    if (releaseTime == lastReleaseTime) return releaseTimeRatio;
-    return std::exp(-0.99967234081 / (getSampleRate() * (float) releaseTime.getValue() * 0.001));
+    if (*releaseTime == lastReleaseTime) return releaseTimeRatio;
+    return std::exp(-0.99967234081 / (getSampleRate() * releaseTime->get() * 0.001));
 }
 
 float RPCompressorAudioProcessor::calDetectDb(float xn, int channel)
@@ -274,19 +316,19 @@ float RPCompressorAudioProcessor::calGain(float detectDb){
     if (detectDb <= -96.0f) return 1.0f;
     float outputDb = 0.0f;
     
-    if (!(bool) softKneeFlag.getValue()) {
-        outputDb = (float) threshold.getValue() + (detectDb - (float) threshold.getValue()) / (float) ratio.getValue();
+    if (!softKneeFlag->get()) {
+        outputDb = threshold->get() + (detectDb - threshold->get()) / ratio->get();
     } else {
-        if (2.0*(detectDb - (float) threshold.getValue()) < - (float) kneeWidth.getValue())
+        if (2.0*(detectDb - threshold->get()) < - kneeWidth->get())
             outputDb = detectDb;
-        else if (2.0*(fabs(detectDb - (float) threshold.getValue())) <= (float) kneeWidth.getValue())
+        else if (2.0*(fabs(detectDb - threshold->get())) <= kneeWidth->get())
         {
-            outputDb = detectDb + (((1.0 / (float) ratio.getValue()) - 1.0) * pow((detectDb - (float) threshold.getValue() + ((float) kneeWidth.getValue() / 2.0)), 2.0)) / (2.0*(float) kneeWidth.getValue());
+            outputDb = detectDb + (((1.0 / ratio->get()) - 1.0) * pow((detectDb - threshold->get() + (kneeWidth->get() / 2.0)), 2.0)) / (2.0 * kneeWidth->get());
         }
         // --- right of knee, compression zone
-        else if (2.0*(detectDb - (float) threshold.getValue()) > (float) kneeWidth.getValue())
+        else if (2.0*(detectDb - threshold->get()) > kneeWidth->get())
         {
-            outputDb = (float) threshold.getValue() + (detectDb - (float) threshold.getValue()) / (float) ratio.getValue();
+            outputDb = threshold->get() + (detectDb - threshold->get()) / ratio->get();
         }
     }
     

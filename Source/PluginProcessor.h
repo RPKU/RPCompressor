@@ -25,17 +25,28 @@ public:
     RPCompressorAudioProcessor();
     ~RPCompressorAudioProcessor() override;
     
-    juce::Value attackTime;
-    juce::Value releaseTime;
+    juce::AudioProcessorValueTreeState* parameters;
+    
+    juce::AudioParameterFloat* attackTime;
+    juce::AudioParameterFloat* releaseTime;
+    juce::AudioParameterFloat* threshold;
+    juce::AudioParameterFloat* ratio;
+    juce::AudioParameterFloat* kneeWidth;
+    juce::AudioParameterFloat* makeUpGain;
+    juce::AudioParameterBool* softKneeFlag;
+    juce::AudioParameterBool* sideChainFlag;
+    
     float lastAttackTime;
     float lastReleaseTime;
+    float lastThreshold;
+    float lastRatio;
+    float lastKneeWidth;
+    bool lastSoftKneeFlag;
+    bool lastSideChainFlag;
+    
     float attackTimeRatio;
     float releaseTimeRatio;
     float gainReduction;
-    juce::Value threshold;
-    juce::Value ratio;
-    float lastThreshold;
-    float lastRatio;
     float envelope;
     float* lastEnvelope;
     int numSamples;
@@ -46,22 +57,12 @@ public:
     float currentRatio;
     int* processStep;
     int* processFlag;
-    juce::Value kneeWidth;
-    juce::Value makeUpGain;
-    juce::Value softKneeFlag;
-    juce::Value sideChainFlag;
-    float lastKneeWidth;
-    bool lastSoftKneeFlag;
-    bool lastSideChainFlag;
-    
 
     //==============================================================================
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
 
-   #ifndef JucePlugin_PreferredChannelConfigurations
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
-   #endif
 
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
